@@ -1,55 +1,93 @@
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from pathlib import Path
+
 
 def create_dashboard():
     # ==============================================================================
     # 1. DATA PREPARATION
     # ==============================================================================
 
+    # --- Construct robust paths to data files ---
+    script_dir = Path(__file__).resolve().parent
+    data_dir = script_dir.parent / 'data'
+    products_file = data_dir / 'products.csv'
+    sales_file = data_dir / 'sales_summary.csv'
+
     # --- Data for Treemap ---
     try:
-        df_products = pd.read_csv('../data/products.csv')
+        df_products = pd.read_csv(products_file)
     except FileNotFoundError:
         print("Product CSV not found. Using dummy product data.")
         product_data = {
-            'category': ['Electronics', 'Electronics', 'Furniture', 'Furniture', 'Home Appliances', 'Home Appliances', 'Sports', 'Clothing'],
-            'sub_category': ['Laptops', 'Smartphones', 'Chairs', 'Tables', 'Refrigerators', 'Microwaves', 'Bicycles', 'Shirts'],
+            'category': ['Electronics', 'Electronics', 'Furniture', 'Furniture', 'Home Appliances', 'Home Appliances',
+                         'Sports', 'Clothing'],
+            'sub_category': ['Laptops', 'Smartphones', 'Chairs', 'Tables', 'Refrigerators', 'Microwaves', 'Bicycles',
+                             'Shirts'],
             'value': [1500, 1200, 300, 500, 800, 200, 600, 150]
         }
         df_products = pd.DataFrame(product_data)
 
-    # --- Data for Geographical Map ---
-    geo_data = {
-        'state_code': ['SP', 'RJ', 'MG', 'BA', 'PR', 'RS', 'PE', 'CE', 'PA', 'SC', 'GO', 'MA', 'AM', 'ES'],
-        'sales': [12000, 8500, 7000, 5500, 6000, 4800, 4200, 3800, 3000, 4500, 3200, 2500, 2000, 2800]
+    # --- Data for Geographical Map (USA) ---
+    try:
+        df_sales = pd.read_csv(sales_file)
+    except FileNotFoundError:
+        print("Sales summary CSV not found. Using dummy sales data.")
+        sales_data = {
+            'state_usa': ['California', 'Texas', 'Florida', 'New York', 'Pennsylvania',
+                          'Illinois', 'Ohio', 'Georgia', 'North Carolina', 'Michigan',
+                          'California', 'Texas', 'Florida', 'New York'],
+            'total_sales': [125000, 180000, 150000, 140000, 90000, 110000, 85000,
+                            95000, 78000, 70000, 130000, 170000, 160000, 120000]
+        }
+        df_sales = pd.DataFrame(sales_data)
+
+    # Aggregate sales data by state
+    df_geo = df_sales.groupby('state_usa')['total_sales'].sum().reset_index()
+
+    # Add state abbreviations for the scatter_geo map
+    us_state_to_abbrev = {
+        "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
+        "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+        "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA",
+        "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+        "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+        "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH",
+        "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC",
+        "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA",
+        "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", "Tennessee": "TN",
+        "Texas": "TX", "Utah": "UT", "Vermont": "VT", "Virginia": "VA", "Washington": "WA",
+        "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY"
     }
-    df_geo = pd.DataFrame(geo_data)
+    df_geo['state_code'] = df_geo['state_usa'].map(us_state_to_abbrev)
 
     # Color map for the treemap categories
     color_map = {
-         'Home Appliances': '#d8d8d8',
-         'Electronics': '#5a6d8b',
-         'Sports': '#66bfc7',
-         'Furniture': '#a14df2',
-         'Clothing': '#3333a6'
-     }
+        'Home Appliances': '#d8d8d8',
+        'Electronics': '#5a6d8b',
+        'Sports': '#66bfc7',
+        'Furniture': '#a14df2',
+        'Clothing': '#3333a6'
+    }
 
     # ==============================================================================
     # 2. CREATE INDIVIDUAL FIGURES
     # ==============================================================================
 
-    # --- Create Geographical Map Figure (Left side) ---
-    fig_geo = px.choropleth(
+    # --- Create Geographical Map Figure (USA) ---
+    fig_geo = px.scatter_geo(
         df_geo,
-        geojson="https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson",
         locations='state_code',
-        featureidkey="properties.sigla",
-        color='sales',
-        color_continuous_scale="Viridis",
-        scope="south america"
+        locationmode="USA-states",
+        size='total_sales',
+        scope="usa",
+        custom_data=['state_usa', 'total_sales']
+    )
+    fig_geo.update_traces(
+        marker_color='#62738c',
+        hovertemplate='<b>%{customdata[0]}</b><br>Total Sales: %{customdata[1]:$,.2f}<extra></extra>'
     )
 
     # --- Create Treemap Figure (Right side) ---
@@ -72,10 +110,10 @@ def create_dashboard():
     # 3. COMBINE FIGURES INTO A SINGLE DASHBOARD
     # ==============================================================================
 
-    # Create a figure with subplots (subplot_titles removed)
+    # Create a figure with subplots
     fig_combined = make_subplots(
         rows=1, cols=2,
-        specs=[[{'type': 'choropleth'}, {'type': 'treemap'}]]
+        specs=[[{'type': 'scattergeo'}, {'type': 'treemap'}]]
     )
 
     # Add geo traces
@@ -88,7 +126,6 @@ def create_dashboard():
             fig_combined.add_trace(trace, row=1, col=2)
         elif trace.type == 'scatter':
             fig_combined.add_trace(trace)
-
 
     # ==============================================================================
     # 4. UPDATE LAYOUT AND STYLING
@@ -104,47 +141,54 @@ def create_dashboard():
     if treemap_trace_index != -1:
         fig_combined.data[treemap_trace_index].textinfo = 'label+value+percent parent'
         fig_combined.data[treemap_trace_index].texttemplate = "<b>%{label}</b><br>%{value}<br>%{percentParent:.1%}"
-        fig_combined.data[treemap_trace_index].hovertemplate = '<b>%{label}</b><br>Value:%{value}<br>Share of Parent: %{percentParent:.1%}<extra></extra>'
+        fig_combined.data[
+            treemap_trace_index].hovertemplate = '<b>%{label}</b><br>Value:%{value}<br>Share of Parent: %{percentParent:.1%}<extra></extra>'
         fig_combined.data[treemap_trace_index].marker.pad = dict(t=2, l=2, r=2, b=2)
 
-
-    # --- Update overall layout ---
-    fig_combined.update_layout(
-        # Manually create annotations to act as subplot titles
-        annotations=[
-            dict(
-                text="Sales Distribution in Brazil",
-                x=0.22, y=1.0, # Position for the left title
-                xref='paper', yref='paper',
-                font=dict(size=16), showarrow=False, yanchor='bottom'
+        # --- Update overall layout ---
+        fig_combined.update_layout(
+            # Manually create annotations to act as subplot titles
+            annotations=[
+                dict(
+                    text="Sales Distribution in the USA",
+                    x=0.25, y=1.0,
+                    xref='paper', yref='paper',
+                    font=dict(size=16), showarrow=False, yanchor='bottom'
+                ),
+                dict(
+                    text="Product Distribution",
+                    x=0.75, y=1.0,
+                    xref='paper', yref='paper',
+                    font=dict(size=16), showarrow=False, yanchor='bottom'
+                )
+            ],
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=0.97,
+                xanchor="center",
+                x=0.75
             ),
-            dict(
-                text="Product Distribution",
-                x=0.61, y=1.05, # Position for the right title
-                xref='paper', yref='paper',
-                font=dict(size=16), showarrow=False, yanchor='bottom'
-            )
-        ],
-        legend=dict(
-            orientation="h",
-            # Anchor from the top to place it below the Y coordinate
-            yanchor="top",
-            # This y value now places it just below the custom annotation
-            y=1.05,
-            xanchor="center",
-            x=0.73
-        ),
-        coloraxis_showscale=False,
-        margin=dict(t=100, l=25, r=25, b=25),
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=16,
-            font_family="Rockwell"
-        ),
-        xaxis_visible=False,
-        yaxis_visible=False
+            coloraxis_showscale=False,
+            margin=dict(t=100, l=25, r=25, b=25),
+            hoverlabel=dict(
+                bgcolor="white",
+                font_size=16,
+                font_family="Rockwell"
+            ),
+            xaxis_visible=False,
+            yaxis_visible=False,
+            # Set the background color to white
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
+
+    # Configure the geographic map properties
+    fig_combined.update_geos(
+        scope='usa',
+        landcolor='#d6d6d6',  # Set the land color for the states
+        row=1, col=1
     )
-    fig_combined.update_geos(fitbounds="locations", row=1, col=1)
 
     fig_combined.show()
 
