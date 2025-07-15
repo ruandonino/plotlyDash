@@ -47,6 +47,18 @@ def create_dashboard():
     # Aggregate sales data by state
     df_geo = df_sales.groupby('state_usa')['total_sales'].sum().reset_index()
 
+    # --- Data for Bar Chart (Monthly Promotional Sales Percentage) ---
+    df_bar = df_sales.copy()
+    # Calculate promotional sales for each record
+    df_bar['promo_sales'] = df_bar['total_sales'] * df_bar['percentage_promo']
+    # Group by month and sum total sales and promo sales
+    monthly_summary = df_bar.groupby('month').agg(
+        total_sales=('total_sales', 'sum'),
+        promo_sales=('promo_sales', 'sum')
+    ).reset_index()
+    # Calculate the overall promotional percentage for the month
+    monthly_summary['promo_percentage'] = (monthly_summary['promo_sales'] / monthly_summary['total_sales'])
+
     # Add state abbreviations for the scatter_geo map
     us_state_to_abbrev = {
         "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
@@ -90,6 +102,17 @@ def create_dashboard():
         hovertemplate='<b>%{customdata[0]}</b><br>Total Sales: %{customdata[1]:$,.2f}<extra></extra>'
     )
 
+    # --- Create Bar Chart Figure (Monthly Promo %) ---
+    fig_bar = px.bar(
+        monthly_summary,
+        x='month',
+        y='promo_percentage',
+        text_auto='.1%',
+        labels={'month': 'Month', 'promo_percentage': 'Promotional Sales %'}
+    )
+    fig_bar.update_yaxes(tickformat=".0%")
+    fig_bar.update_traces(textangle=0, textposition="outside")
+
     # --- Create Treemap Figure (Right side) ---
     fig_treemap = px.treemap(
         df_products,
@@ -112,13 +135,21 @@ def create_dashboard():
 
     # Create a figure with subplots
     fig_combined = make_subplots(
-        rows=1, cols=2,
-        specs=[[{'type': 'scattergeo'}, {'type': 'treemap'}]]
+        rows=2, cols=2,
+        specs=[[{'type': 'scattergeo'}, {'type': 'treemap', 'rowspan': 2}],
+               [{'type': 'bar'}, None]],
+        column_widths=[0.5, 0.5],
+        row_heights=[0.6, 0.4],
+        vertical_spacing=0.15
     )
 
     # Add geo traces
     for trace in fig_geo.data:
         fig_combined.add_trace(trace, row=1, col=1)
+
+    # Add bar chart traces
+    for trace in fig_bar.data:
+        fig_combined.add_trace(trace, row=2, col=1)
 
     # Add treemap and legend traces
     for trace in fig_treemap.data:
@@ -150,16 +181,22 @@ def create_dashboard():
             # Manually create annotations to act as subplot titles
             annotations=[
                 dict(
-                    text="Sales Distribution in the USA",
-                    x=0.25, y=1.0,
+                    text="<b>Sales Distribution in the USA</b>",
+                    y=1.0, x=0.25,
                     xref='paper', yref='paper',
-                    font=dict(size=16), showarrow=False, yanchor='bottom'
+                    font=dict(size=20), showarrow=False, xanchor='center', yanchor='bottom'
                 ),
                 dict(
-                    text="Product Distribution",
-                    x=0.75, y=1.0,
+                    text="<b>Product Distribution</b>",
+                    y=1.0, x=0.75,
                     xref='paper', yref='paper',
-                    font=dict(size=16), showarrow=False, yanchor='bottom'
+                    font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
+                ),
+                dict(
+                    text="<b>Promotional Sales % by Month</b>",
+                    y=0.38, x=0.25,
+                    xref='paper', yref='paper',
+                    font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
                 )
             ],
             legend=dict(
