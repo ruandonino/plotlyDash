@@ -67,7 +67,7 @@ def generate_product_data(num_products=150):
     return df
 
 
-def generate_sales_summary(year=2023, num_months=12, num_states=20):
+def generate_sales_summary(start_year=2023, total_months=12, num_states=20):
     """Generate monthly sales summary data."""
     months = []
     years = []
@@ -82,7 +82,9 @@ def generate_sales_summary(year=2023, num_months=12, num_states=20):
     # Select random states
     selected_states = np.random.choice(STATES_USA, size=num_states, replace=False)
 
-    for month in range(1, num_months + 1):
+    for i in range(total_months):
+        year = start_year + (i // 12)
+        month = (i % 12) + 1
         for state in selected_states[:num_states]:
             # Base values with some randomness
             base_sales = np.random.uniform(50000, 200000)
@@ -126,10 +128,7 @@ def generate_sales_summary(year=2023, num_months=12, num_states=20):
         'percentage_non_promo': non_promo_percent
     })
 
-    # Ensure we have exactly 100 rows
-    return df.head(100) if len(df) >= 100 else df
-
-
+    return df
 def save_datasets(products_df, sales_df, output_dir='data'):
     """Save the generated datasets to CSV files."""
     output_path = '../data'
@@ -149,12 +148,16 @@ def main():
     products_df = generate_product_data(150)
 
     print("Generating sales summary data...")
-    sales_df = generate_sales_summary(year=2023)
+    sales_df = generate_sales_summary(start_year=2023, total_months=18)
 
     print("\nDataset Summary:")
     print(f"Total products: {len(products_df)}")
     print(f"Total sales records: {len(sales_df)}")
-    print(f"Date range: {sales_df['month'].min()}/2023 to {sales_df['month'].max()}/2023")
+    first_month = sales_df[sales_df['year'] == sales_df['year'].min()]['month'].min()
+    first_year = sales_df['year'].min()
+    last_month = sales_df[sales_df['year'] == sales_df['year'].max()]['month'].max()
+    last_year = sales_df['year'].max()
+    print(f"Date range: {first_month}/{first_year} to {last_month}/{last_year}")
     print(f"Total sales value: ${sales_df['total_sales'].sum():,.2f}")
 
     # Save datasets

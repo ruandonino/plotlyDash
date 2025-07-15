@@ -52,12 +52,20 @@ def create_dashboard():
     # Calculate promotional sales for each record
     df_bar['promo_sales'] = df_bar['total_sales'] * df_bar['percentage_promo']
     # Group by month and sum total sales and promo sales
-    monthly_summary = df_bar.groupby('month').agg(
+    monthly_summary = df_bar.groupby(['year', 'month']).agg(
         total_sales=('total_sales', 'sum'),
         promo_sales=('promo_sales', 'sum')
     ).reset_index()
     # Calculate the overall promotional percentage for the month
     monthly_summary['promo_percentage'] = (monthly_summary['promo_sales'] / monthly_summary['total_sales'])
+
+    # Create a month-year label for the x-axis
+    month_map = {
+        1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+        7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+    }
+    monthly_summary['month_name'] = monthly_summary['month'].map(month_map)
+    monthly_summary['month_year_label'] = monthly_summary['month_name'] + ' ' + monthly_summary['year'].astype(str)
 
     # Add state abbreviations for the scatter_geo map
     us_state_to_abbrev = {
@@ -103,15 +111,26 @@ def create_dashboard():
     )
 
     # --- Create Bar Chart Figure (Monthly Promo %) ---
-    fig_bar = px.bar(
-        monthly_summary,
-        x='month',
-        y='promo_percentage',
-        text_auto='.1%',
-        labels={'month': 'Month', 'promo_percentage': 'Promotional Sales %'}
-    )
-    fig_bar.update_yaxes(tickformat=".0%")
-    fig_bar.update_traces(textangle=0, textposition="outside")
+    fig_bar = go.Figure()
+
+    # Add shadow bar for 100% background
+    fig_bar.add_trace(go.Bar(
+        x=monthly_summary['month_year_label'],
+        y=[1] * len(monthly_summary),
+        marker_color='lightgray',
+        hoverinfo='none',
+    ))
+
+    # Add main bar for promotional percentage
+    fig_bar.add_trace(go.Bar(
+        x=monthly_summary['month_year_label'],
+        y=monthly_summary['promo_percentage'],
+        hovertemplate='Promotional Sales: %{y:.1%}<extra></extra>',
+        marker_color='#62738c'  # Match the map marker color
+    ))
+
+    # Set layout for the bar chart figure
+    fig_bar.update_layout(showlegend=False)
 
     # --- Create Treemap Figure (Right side) ---
     fig_treemap = px.treemap(
@@ -178,6 +197,7 @@ def create_dashboard():
 
         # --- Update overall layout ---
         fig_combined.update_layout(
+            barmode='overlay',
             # Manually create annotations to act as subplot titles
             annotations=[
                 dict(
@@ -225,6 +245,18 @@ def create_dashboard():
         scope='usa',
         landcolor='#d6d6d6',  # Set the land color for the states
         row=1, col=1
+    )
+
+    # --- Configure Bar Chart Axes ---
+    # We apply these to fig_combined because the bar chart is a subplot
+    # and layout settings from fig_bar are not automatically carried over.
+    fig_combined.update_xaxes(title_text="", visible=True, tickangle=-90, row=2, col=1)
+    fig_combined.update_yaxes(
+        title_text="Promotional Sales %",
+        tickformat=".0%",
+        visible=True,
+        row=2,
+        col=1
     )
 
     fig_combined.show()
