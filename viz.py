@@ -9,15 +9,10 @@ def create_dashboard():
     # ==============================================================================
     # 1. DATA PREPARATION
     # ==============================================================================
-
-    # --- Construct robust paths for data and output directories ---
     try:
-        # Get the directory of the script file
         script_dir = Path(__file__).resolve().parent
-        # The base directory is the parent of the 'scripts' directory
         base_dir = script_dir.parent
     except NameError:
-        # Fallback for environments where __file__ is not defined (e.g., some notebooks)
         base_dir = Path('.')
 
     data_dir = base_dir / 'data'
@@ -59,7 +54,6 @@ def create_dashboard():
         }
         df_sales = pd.DataFrame(sales_data)
 
-    # Aggregate sales data by state
     df_geo = df_sales.groupby('state_usa')['total_sales'].sum().reset_index()
 
     # --- Data for KPIs/Cards ---
@@ -171,7 +165,6 @@ def create_dashboard():
         color='category',
         color_discrete_map=color_map
     )
-    # Add invisible traces for the legend
     for category_name, color in color_map.items():
         fig_treemap.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers',
@@ -190,10 +183,7 @@ def create_dashboard():
                [{'type': 'scattergeo'}, {'type': 'treemap', 'rowspan': 2}],
                [{'type': 'bar'}, None]],
         column_widths=[0.5, 0.5],
-        # ================== FIX 1: START ==================
-        # Change row heights to push the charts down, creating more header space.
         row_heights=[0.10, 0.55, 0.35],
-        # =================== FIX 1: END ===================
         vertical_spacing=0.15,
         horizontal_spacing=0.04
     )
@@ -217,13 +207,8 @@ def create_dashboard():
     gap = 0.015
     total_gap_space = (num_cards - 1) * gap
     card_width = (1.0 - x_start * 2 - total_gap_space) / num_cards
-
-    # We will collect all annotations here and add them to the layout at the end.
-    # This prevents `update_layout` from overwriting annotations added with `add_annotation`.
     all_annotations = []
 
-    # Add KPI cards. We use go.Indicator for numbers and a go.layout.Annotation for the text-only card.
-    # This is a more robust approach than trying to force text into a numeric indicator.
     for ind,i in zip(indicators_data, range(len(indicators_data))):
         if 'text' in ind:
             # For the text-only card, we use an annotation positioned in the first slot.
@@ -232,9 +217,9 @@ def create_dashboard():
                 align='left',
                 showarrow=False,
                 xref='paper', yref='paper',
-                x=x_start + 0.01, y=1,  # Position horizontally and vertically
+                x=x_start + 0.01, y=1,
                 xanchor='left', yanchor='top',
-                font=dict(size=20, color="black")  # Match the font size of the numeric KPIs
+                font=dict(size=20, color="black")
             )
             all_annotations.append(kpi_annotation)
         else:
@@ -259,11 +244,11 @@ def create_dashboard():
         else:
             x_start += card_width + gap
 
-    # Add geo traces
+
     for trace in fig_geo.data:
         fig_combined.add_trace(trace, row=2, col=1)
 
-    # Add bar chart traces
+
     for trace in fig_bar.data:
         fig_combined.add_trace(trace, row=3, col=1)
 
@@ -291,7 +276,6 @@ def create_dashboard():
             treemap_trace_index].hovertemplate = '<b>%{label}</b><br>Value:%{value}<br>Share of Parent: %{percentParent:.1%}<extra></extra>'
         fig_combined.data[treemap_trace_index].marker.pad = dict(t=2, l=2, r=2, b=2)
 
-    # --- Define annotations for chart titles and combine with KPI annotation ---
     chart_title_annotations = [
         dict(
             text="Map of Sales",
@@ -306,8 +290,7 @@ def create_dashboard():
             font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
         ),
         dict(
-            # Colored the word "Promo" to match the bar color for better visual association.
-            text="% Net Revenue - <b style='color:#62738c'>Promo</b> vs <b>Non-Promo</b>",
+            text="% Net Revenue - <b>Promo</b> vs <b style='color:#62738c'>Non-Promo</b>",
             y=0.28, x=0.13,  # Centered over the first column
             xref='paper', yref='paper',
             font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
@@ -315,7 +298,6 @@ def create_dashboard():
     ]
     all_annotations.extend(chart_title_annotations)
 
-    # --- Update overall layout ---
     fig_combined.update_layout(
         title_text="<b>Executive Sales Summary</b>",
         title_x=0.06,
@@ -326,8 +308,6 @@ def create_dashboard():
                  fillcolor="#f5f5f5", line_width=0, layer="below"),
         ],
         annotations=all_annotations,
-        # ================== FIX 2: START ==================
-        # Move the legend up to sit neatly under its title
         legend=dict(
             orientation="h",
             yanchor="top",
@@ -335,7 +315,6 @@ def create_dashboard():
             xanchor="center",
             x=0.71
         ),
-        # =================== FIX 2: END ===================
         coloraxis_showscale=False,
         margin=dict(t=60, l=25, r=25, b=10),
         hoverlabel=dict(
@@ -349,7 +328,6 @@ def create_dashboard():
         plot_bgcolor='white'
     )
 
-    # Configure the geographic map properties
     fig_combined.update_geos(
         scope='usa',
         landcolor='#d6d6d6',
@@ -357,17 +335,15 @@ def create_dashboard():
         bgcolor='rgba(0,0,0,0)'
     )
 
-    # --- Configure Bar Chart Axes ---
     fig_combined.update_xaxes(title_text="", visible=True, tickangle=-90, row=3, col=1)
     fig_combined.update_yaxes(
-        title_text="Promotional Sales %",
+        title_text="% of Total Net Revenue",
         tickformat=".0%",
         visible=True,
         row=3,
         col=1
     )
 
-    # --- Save the combined figure to an HTML file ---
     outputs_dir.mkdir(parents=True, exist_ok=True)
     output_file_path = outputs_dir / 'executive_sales_summary.html'
     fig_combined.write_html(output_file_path)
