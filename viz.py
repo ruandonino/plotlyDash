@@ -11,10 +11,17 @@ def create_dashboard():
     # ==============================================================================
 
     # --- Construct robust paths to data files ---
-    script_dir = Path(__file__).resolve().parent
-    data_dir = script_dir.parent / 'data'
-    products_file = data_dir / 'products.csv'
-    sales_file = data_dir / 'sales_summary.csv'
+    try:
+        script_dir = Path(__file__).resolve().parent
+        data_dir = script_dir.parent / 'data'
+        products_file = data_dir / 'products.csv'
+        sales_file = data_dir / 'sales_summary.csv'
+    except NameError:
+        # Fallback for environments where __file__ is not defined (e.g., some notebooks)
+        data_dir = Path('./data')
+        products_file = data_dir / 'products.csv'
+        sales_file = data_dir / 'sales_summary.csv'
+
 
     # --- Data for Treemap ---
     try:
@@ -35,17 +42,40 @@ def create_dashboard():
         df_sales = pd.read_csv(sales_file)
     except FileNotFoundError:
         print("Sales summary CSV not found. Using dummy sales data.")
+        # NOTE: Added all required columns to the dummy data to prevent errors.
         sales_data = {
             'state_usa': ['California', 'Texas', 'Florida', 'New York', 'Pennsylvania',
-                          'Illinois', 'Ohio', 'Georgia', 'North Carolina', 'Michigan',
-                          'California', 'Texas', 'Florida', 'New York'],
-            'total_sales': [125000, 180000, 150000, 140000, 90000, 110000, 85000,
-                            95000, 78000, 70000, 130000, 170000, 160000, 120000]
+                          'Illinois', 'Ohio', 'Georgia', 'North Carolina', 'Michigan'],
+            'total_sales': [125000, 180000, 150000, 140000, 90000, 110000, 85000, 95000, 78000, 70000],
+            'order_avg': [150, 160, 155, 170, 145, 150, 140, 148, 130, 135],
+            'total_cost': [80000, 110000, 95000, 90000, 60000, 70000, 55000, 65000, 50000, 48000],
+            'total_discount': [12000, 15000, 13000, 14000, 9000, 11000, 8000, 9000, 7000, 6000],
+            'units_sales': [800, 1100, 950, 850, 600, 720, 600, 650, 580, 500],
+            'percentage_promo': [0.1, 0.15, 0.12, 0.2, 0.08, 0.1, 0.11, 0.13, 0.09, 0.07],
+            'year': [2023, 2023, 2023, 2024, 2024, 2024, 2024, 2024, 2024, 2024],
+            'month': [10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
         }
         df_sales = pd.DataFrame(sales_data)
 
     # Aggregate sales data by state
     df_geo = df_sales.groupby('state_usa')['total_sales'].sum().reset_index()
+
+    # --- Data for KPIs/Cards ---
+    # Calculate an estimated order count to derive average order value
+    df_sales['order_count_est'] = df_sales['total_sales'] / df_sales['order_avg']
+    total_order_count = df_sales['order_count_est'].sum()
+    total_revenue = df_sales['total_sales'].sum()
+    total_cost = df_sales['total_cost'].sum()
+
+    # Calculate high-level metrics
+    total_profit = total_revenue - total_cost
+    total_discount = df_sales['total_discount'].sum()
+    profit_margin = total_profit / total_revenue if total_revenue else 0
+    avg_order_value = total_revenue / total_order_count if total_order_count else 0
+    total_units = df_sales['units_sales'].sum()
+
+    # Product-specific KPIs
+    num_products = len(df_products)
 
     # --- Data for Bar Chart (Monthly Promotional Sales Percentage) ---
     df_bar = df_sales.copy()
@@ -113,23 +143,22 @@ def create_dashboard():
     # --- Create Bar Chart Figure (Monthly Promo %) ---
     fig_bar = go.Figure()
 
-    # Add shadow bar for 100% background
     fig_bar.add_trace(go.Bar(
         x=monthly_summary['month_year_label'],
         y=[1] * len(monthly_summary),
         marker_color='lightgray',
         hoverinfo='none',
+        showlegend=False
     ))
 
-    # Add main bar for promotional percentage
     fig_bar.add_trace(go.Bar(
         x=monthly_summary['month_year_label'],
         y=monthly_summary['promo_percentage'],
         hovertemplate='Promotional Sales: %{y:.1%}<extra></extra>',
-        marker_color='#62738c'  # Match the map marker color
+        marker_color='#62738c',
+        showlegend=False
     ))
 
-    # Set layout for the bar chart figure
     fig_bar.update_layout(showlegend=False)
 
     # --- Create Treemap Figure (Right side) ---
@@ -154,26 +183,64 @@ def create_dashboard():
 
     # Create a figure with subplots
     fig_combined = make_subplots(
-        rows=2, cols=2,
-        specs=[[{'type': 'scattergeo'}, {'type': 'treemap', 'rowspan': 2}],
+        rows=3, cols=2,
+        specs=[[{'type': 'indicator', 'colspan': 2}, None],
+               [{'type': 'scattergeo'}, {'type': 'treemap', 'rowspan': 2}],
                [{'type': 'bar'}, None]],
         column_widths=[0.5, 0.5],
-        row_heights=[0.6, 0.4],
-        vertical_spacing=0.15
+        # ================== FIX 1: START ==================
+        # Change row heights to push the charts down, creating more header space.
+        row_heights=[0.10, 0.55, 0.35],
+        # =================== FIX 1: END ===================
+        vertical_spacing=0.15,
+        horizontal_spacing=0.04
     )
+
+    # --- Add Indicator (KPI) Traces ---
+    indicators_data = [
+        {'title': "Net Revenue", 'value': total_revenue, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Profit", 'value': total_profit, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Profit Margin", 'value': profit_margin, 'valueformat': '.1%'},
+        {'title': "Total Discount", 'value': total_discount, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Order Count", 'value': total_order_count, 'valueformat': ',.0f'},
+        {'title': "Avg. Order Value", 'value': avg_order_value, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Units Sold", 'value': total_units, 'valueformat': ',.0f'},
+        {'title': "# of Products", 'value': num_products, 'valueformat': ',.0f'}
+    ]
+
+    x_start = 0.02
+    num_cards = len(indicators_data)
+    gap = 0.015
+    total_gap_space = (num_cards - 1) * gap
+    card_width = (1.0 - x_start * 2 - total_gap_space) / num_cards
+
+    for ind in indicators_data:
+        fig_combined.add_trace(go.Indicator(
+            mode="number",
+            value=ind['value'],
+            number={
+                'prefix': f"<b>{ind.get('prefix', '')}",
+                'suffix': f"</b>{ind.get('suffix', '')}<br><span style='font-size:12px;color:black'>{ind['title']}</span>",
+                'valueformat': ind.get('valueformat', ',.0f'),
+                'font': {"size": 20, "color": "black"}
+            },
+            # Adjust the y-domain to move the KPIs slightly up
+            domain={'row': 0, 'column': 0, 'x': [x_start, x_start + card_width], 'y': [0.95, 1]}
+        ))
+        x_start += card_width + gap
 
     # Add geo traces
     for trace in fig_geo.data:
-        fig_combined.add_trace(trace, row=1, col=1)
+        fig_combined.add_trace(trace, row=2, col=1)
 
     # Add bar chart traces
     for trace in fig_bar.data:
-        fig_combined.add_trace(trace, row=2, col=1)
+        fig_combined.add_trace(trace, row=3, col=1)
 
     # Add treemap and legend traces
     for trace in fig_treemap.data:
         if trace.type == 'treemap':
-            fig_combined.add_trace(trace, row=1, col=2)
+            fig_combined.add_trace(trace, row=2, col=2)
         elif trace.type == 'scatter':
             fig_combined.add_trace(trace)
 
@@ -181,7 +248,6 @@ def create_dashboard():
     # 4. UPDATE LAYOUT AND STYLING
     # ==============================================================================
 
-    # --- Update Treemap-specific text and hover info ---
     treemap_trace_index = -1
     for i, trace in enumerate(fig_combined.data):
         if trace.type == 'treemap':
@@ -195,67 +261,73 @@ def create_dashboard():
             treemap_trace_index].hovertemplate = '<b>%{label}</b><br>Value:%{value}<br>Share of Parent: %{percentParent:.1%}<extra></extra>'
         fig_combined.data[treemap_trace_index].marker.pad = dict(t=2, l=2, r=2, b=2)
 
-        # --- Update overall layout ---
-        fig_combined.update_layout(
-            barmode='overlay',
-            # Manually create annotations to act as subplot titles
-            annotations=[
-                dict(
-                    text="<b>Sales Distribution in the USA</b>",
-                    y=1.0, x=0.25,
-                    xref='paper', yref='paper',
-                    font=dict(size=20), showarrow=False, xanchor='center', yanchor='bottom'
-                ),
-                dict(
-                    text="<b>Product Distribution</b>",
-                    y=1.0, x=0.75,
-                    xref='paper', yref='paper',
-                    font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
-                ),
-                dict(
-                    text="<b>Promotional Sales % by Month</b>",
-                    y=0.38, x=0.25,
-                    xref='paper', yref='paper',
-                    font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
-                )
-            ],
-            legend=dict(
-                orientation="h",
-                yanchor="top",
-                y=0.97,
-                xanchor="center",
-                x=0.75
+    # --- Update overall layout ---
+    fig_combined.update_layout(
+        title_text="<b>Executive Sales Summary</b>",
+        title_x=0.06,
+        title_font_size=24,
+        barmode='overlay',
+        shapes=[
+            dict(type="rect", xref="paper", yref="paper", x0=-0.05, y0=0.90, x1=1.03, y1=1.01,
+                 fillcolor="#f5f5f5", line_width=0, layer="below"),
+        ],
+        annotations=[
+            dict(
+                text="<b>Sales Distribution in the USA</b>",
+                y=0.83, x=0.10,
+                xref='paper', yref='paper',
+                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
             ),
-            coloraxis_showscale=False,
-            margin=dict(t=100, l=25, r=25, b=25),
-            hoverlabel=dict(
-                bgcolor="white",
-                font_size=16,
-                font_family="Rockwell"
+            dict(
+                text="<b>Product Distribution</b>",
+                y=0.84, x=0.59,
+                xref='paper', yref='paper',
+                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
             ),
-            xaxis_visible=False,
-            yaxis_visible=False,
-            # Set the background color to white
-            paper_bgcolor='white',
-            plot_bgcolor='white'
-        )
+            dict(
+                text="<b>Promotional Sales % by Month</b>",
+                y=0.28, x=0.10,
+                xref='paper', yref='paper',
+                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
+            )
+        ],
+        # ================== FIX 2: START ==================
+        # Move the legend up to sit neatly under its title
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=0.83,
+            xanchor="center",
+            x=0.71
+        ),
+        # =================== FIX 2: END ===================
+        coloraxis_showscale=False,
+        margin=dict(t=80, l=25, r=25, b=10),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=16,
+            font_family="Rockwell"
+        ),
+        xaxis_visible=False,
+        yaxis_visible=False,
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    )
 
     # Configure the geographic map properties
     fig_combined.update_geos(
         scope='usa',
-        landcolor='#d6d6d6',  # Set the land color for the states
-        row=1, col=1
+        landcolor='#d6d6d6',
+        row=2, col=1
     )
 
     # --- Configure Bar Chart Axes ---
-    # We apply these to fig_combined because the bar chart is a subplot
-    # and layout settings from fig_bar are not automatically carried over.
-    fig_combined.update_xaxes(title_text="", visible=True, tickangle=-90, row=2, col=1)
+    fig_combined.update_xaxes(title_text="", visible=True, tickangle=-90, row=3, col=1)
     fig_combined.update_yaxes(
         title_text="Promotional Sales %",
         tickformat=".0%",
         visible=True,
-        row=2,
+        row=3,
         col=1
     )
 
