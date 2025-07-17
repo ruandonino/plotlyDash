@@ -10,18 +10,20 @@ def create_dashboard():
     # 1. DATA PREPARATION
     # ==============================================================================
 
-    # --- Construct robust paths to data files ---
+    # --- Construct robust paths for data and output directories ---
     try:
+        # Get the directory of the script file
         script_dir = Path(__file__).resolve().parent
-        data_dir = script_dir.parent / 'data'
-        products_file = data_dir / 'products.csv'
-        sales_file = data_dir / 'sales_summary.csv'
+        # The base directory is the parent of the 'scripts' directory
+        base_dir = script_dir.parent
     except NameError:
         # Fallback for environments where __file__ is not defined (e.g., some notebooks)
-        data_dir = Path('./data')
-        products_file = data_dir / 'products.csv'
-        sales_file = data_dir / 'sales_summary.csv'
+        base_dir = Path('.')
 
+    data_dir = base_dir / 'data'
+    outputs_dir = base_dir / 'outputs'
+    products_file = data_dir / 'products.csv'
+    sales_file = data_dir / 'sales_summary.csv'
 
     # --- Data for Treemap ---
     try:
@@ -198,36 +200,64 @@ def create_dashboard():
 
     # --- Add Indicator (KPI) Traces ---
     indicators_data = [
+        {'text': 'KPIs', 'title': ''},
         {'title': "Net Revenue", 'value': total_revenue, 'prefix': '$', 'valueformat': ',.0f'},
         {'title': "Profit", 'value': total_profit, 'prefix': '$', 'valueformat': ',.0f'},
-        {'title': "Profit Margin", 'value': profit_margin, 'valueformat': '.1%'},
-        {'title': "Total Discount", 'value': total_discount, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Discount", 'value': total_discount, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Profit Margin %", 'value': profit_margin, 'valueformat': '.1%'},
         {'title': "Order Count", 'value': total_order_count, 'valueformat': ',.0f'},
-        {'title': "Avg. Order Value", 'value': avg_order_value, 'prefix': '$', 'valueformat': ',.0f'},
-        {'title': "Units Sold", 'value': total_units, 'valueformat': ',.0f'},
-        {'title': "# of Products", 'value': num_products, 'valueformat': ',.0f'}
+        {'title': "Order Value Avg", 'value': avg_order_value, 'prefix': '$', 'valueformat': ',.0f'},
+        {'title': "Units (# of)", 'value': total_units, 'valueformat': ',.0f'},
+        {'title': "Qty", 'value': num_products, 'valueformat': ',.0f'}
     ]
 
-    x_start = 0.02
+
+    x_start = 0.01
     num_cards = len(indicators_data)
     gap = 0.015
     total_gap_space = (num_cards - 1) * gap
     card_width = (1.0 - x_start * 2 - total_gap_space) / num_cards
 
-    for ind in indicators_data:
-        fig_combined.add_trace(go.Indicator(
-            mode="number",
-            value=ind['value'],
-            number={
+    # We will collect all annotations here and add them to the layout at the end.
+    # This prevents `update_layout` from overwriting annotations added with `add_annotation`.
+    all_annotations = []
+
+    # Add KPI cards. We use go.Indicator for numbers and a go.layout.Annotation for the text-only card.
+    # This is a more robust approach than trying to force text into a numeric indicator.
+    for ind,i in zip(indicators_data, range(len(indicators_data))):
+        if 'text' in ind:
+            # For the text-only card, we use an annotation positioned in the first slot.
+            kpi_annotation = dict(
+                text=f"<b>{ind['text']}</b><br><span style='font-size:12px;color:black'>{ind['title']}</span>",
+                align='left',
+                showarrow=False,
+                xref='paper', yref='paper',
+                x=x_start + 0.01, y=1,  # Position horizontally and vertically
+                xanchor='left', yanchor='top',
+                font=dict(size=20, color="black")  # Match the font size of the numeric KPIs
+            )
+            all_annotations.append(kpi_annotation)
+        else:
+            # For all numeric KPIs, we use a standard indicator trace.
+            number_config = {
                 'prefix': f"<b>{ind.get('prefix', '')}",
                 'suffix': f"</b>{ind.get('suffix', '')}<br><span style='font-size:12px;color:black'>{ind['title']}</span>",
                 'valueformat': ind.get('valueformat', ',.0f'),
                 'font': {"size": 20, "color": "black"}
-            },
-            # Adjust the y-domain to move the KPIs slightly up
-            domain={'row': 0, 'column': 0, 'x': [x_start, x_start + card_width], 'y': [0.95, 1]}
-        ))
-        x_start += card_width + gap
+            }
+            if(x_start + card_width > 1.0):
+                card_width = 1.0 - x_start
+            fig_combined.add_trace(go.Indicator(
+                mode="number",
+                value=ind['value'],
+                number=number_config,
+                domain={'row': 0, 'column': 0, 'x': [x_start, x_start + card_width], 'y': [0.95, 1]}
+            ))
+        # Increment the horizontal position for the next card
+        if(i in [1,2]):
+            x_start += (card_width + gap) + 0.02
+        else:
+            x_start += card_width + gap
 
     # Add geo traces
     for trace in fig_geo.data:
@@ -261,6 +291,30 @@ def create_dashboard():
             treemap_trace_index].hovertemplate = '<b>%{label}</b><br>Value:%{value}<br>Share of Parent: %{percentParent:.1%}<extra></extra>'
         fig_combined.data[treemap_trace_index].marker.pad = dict(t=2, l=2, r=2, b=2)
 
+    # --- Define annotations for chart titles and combine with KPI annotation ---
+    chart_title_annotations = [
+        dict(
+            text="Map of Sales",
+            y=0.84, x=0.055,  # Centered over the first column
+            xref='paper', yref='paper',
+            font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
+        ),
+        dict(
+            text="Net Revenue by Subcategory",
+            y=0.84, x=0.61,  # Centered over the second column
+            xref='paper', yref='paper',
+            font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
+        ),
+        dict(
+            # Colored the word "Promo" to match the bar color for better visual association.
+            text="% Net Revenue - <b style='color:#62738c'>Promo</b> vs <b>Non-Promo</b>",
+            y=0.28, x=0.13,  # Centered over the first column
+            xref='paper', yref='paper',
+            font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
+        )
+    ]
+    all_annotations.extend(chart_title_annotations)
+
     # --- Update overall layout ---
     fig_combined.update_layout(
         title_text="<b>Executive Sales Summary</b>",
@@ -271,26 +325,7 @@ def create_dashboard():
             dict(type="rect", xref="paper", yref="paper", x0=-0.05, y0=0.90, x1=1.03, y1=1.01,
                  fillcolor="#f5f5f5", line_width=0, layer="below"),
         ],
-        annotations=[
-            dict(
-                text="<b>Sales Distribution in the USA</b>",
-                y=0.83, x=0.10,
-                xref='paper', yref='paper',
-                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
-            ),
-            dict(
-                text="<b>Product Distribution</b>",
-                y=0.84, x=0.59,
-                xref='paper', yref='paper',
-                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
-            ),
-            dict(
-                text="<b>Promotional Sales % by Month</b>",
-                y=0.28, x=0.10,
-                xref='paper', yref='paper',
-                font=dict(size=16), showarrow=False, xanchor='center', yanchor='bottom'
-            )
-        ],
+        annotations=all_annotations,
         # ================== FIX 2: START ==================
         # Move the legend up to sit neatly under its title
         legend=dict(
@@ -302,7 +337,7 @@ def create_dashboard():
         ),
         # =================== FIX 2: END ===================
         coloraxis_showscale=False,
-        margin=dict(t=80, l=25, r=25, b=10),
+        margin=dict(t=60, l=25, r=25, b=10),
         hoverlabel=dict(
             bgcolor="white",
             font_size=16,
@@ -318,7 +353,8 @@ def create_dashboard():
     fig_combined.update_geos(
         scope='usa',
         landcolor='#d6d6d6',
-        row=2, col=1
+        row=2, col=1,
+        bgcolor='rgba(0,0,0,0)'
     )
 
     # --- Configure Bar Chart Axes ---
@@ -331,7 +367,11 @@ def create_dashboard():
         col=1
     )
 
-    fig_combined.show()
+    # --- Save the combined figure to an HTML file ---
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    output_file_path = outputs_dir / 'executive_sales_summary.html'
+    fig_combined.write_html(output_file_path)
+    print(f"Dashboard successfully saved to:\n{output_file_path.resolve()}")
 
 
 if __name__ == "__main__":
